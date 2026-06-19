@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TAGGED-3D :: Parkour Multiplayer</title>
+<style>
+  :root{
+    --accent:#00f0ff;
+    --it:#ff3864;
+    --bg:#05060a;
+    --panel:rgba(8,12,20,0.78);
+    --line:rgba(0,240,255,0.25);
+    --warn:#ffb000;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-family:'Consolas','Menlo',monospace;}
+  canvas{display:block;}
+
+  #crosshair{
+    position:fixed;top:50%;left:50%;width:6px;height:6px;
+    transform:translate(-50%,-50%);
+    border:1px solid var(--accent);border-radius:50%;
+    box-shadow:0 0 6px var(--accent);
+    pointer-events:none;z-index:50;
+  }
+
+  #hud{ position:fixed;inset:0;pointer-events:none;z-index:40;font-size:12px;color:#bfe9ff;display:none; }
+  .panel{ position:absolute;background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(3px);padding:10px 14px; }
+
+  #speedo{ bottom:26px;left:50%;transform:translateX(-50%);width:260px;text-align:center;
+    clip-path:polygon(6% 0,94% 0,100% 30%,100% 100%,0 100%,0 30%); }
+  #speedVal{font-size:30px;font-weight:bold;color:var(--accent);text-shadow:0 0 10px rgba(0,240,255,.6);}
+  #speedUnit{font-size:10px;color:#7fa8b8;letter-spacing:2px;}
+  #speedBarOuter{margin-top:6px;height:5px;width:100%;background:rgba(255,255,255,.08);}
+  #speedBarInner{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--it));}
+
+  #itBanner{
+    top:20px;left:50%;transform:translateX(-50%);text-align:center;
+    padding:10px 28px;font-size:16px;letter-spacing:4px;border-color:var(--it);
+  }
+  #itBanner.youAreIt{color:var(--it);text-shadow:0 0 10px rgba(255,56,100,.7);animation:pulse 1s infinite;}
+  #itBanner.fleeing{color:var(--accent);}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.55;}}
+
+  #immunity{
+    top:70px;left:50%;transform:translateX(-50%);
+    font-size:11px;letter-spacing:2px;color:var(--warn);border-color:var(--warn);
+    padding:5px 14px;opacity:0;transition:opacity .2s;
+  }
+  #immunity.show{opacity:1;}
+
+  #playerList{ top:20px;right:20px;width:200px;font-size:11px;line-height:1.9; }
+  #playerList .pl-row{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.05);}
+  #playerList .pl-row.me{color:var(--accent);font-weight:bold;}
+  #playerList .pl-row.it{color:var(--it);font-weight:bold;}
+
+  #controls{ top:20px;left:20px;width:210px;font-size:11px;line-height:1.7;color:#7fa8b8; }
+  #controls b{color:var(--accent);}
+  #controls .k{display:inline-block;min-width:64px;color:#cfeeff;}
+
+  #roomTag{ bottom:20px;right:20px;font-size:11px;color:#7fa8b8;letter-spacing:2px; }
+  #roomTag b{color:var(--accent);}
+
+  /* ---- Lobby ---- */
+  #lobby{
+    position:fixed;inset:0;z-index:100;
+    background:radial-gradient(circle at 50% 35%, #0b1622, #03050a 70%);
+    display:flex;align-items:center;justify-content:center;flex-direction:column;color:#cfeeff;
+  }
+  #lobby.hidden{display:none;}
+  #lobby h1{font-size:34px;letter-spacing:10px;color:var(--accent);text-shadow:0 0 18px rgba(0,240,255,.6);margin-bottom:6px;}
+  #lobby .sub{font-size:12px;color:#5f8aa0;letter-spacing:2px;margin-bottom:30px;}
+  .lobbyCard{
+    background:var(--panel);border:1px solid var(--line);padding:26px 34px;width:380px;
+    display:flex;flex-direction:column;gap:14px;margin-bottom:14px;
+  }
+  .lobbyCard h2{font-size:12px;letter-spacing:3px;color:var(--accent);margin-bottom:4px;}
+  .lobbyCard input{
+    background:rgba(255,255,255,.04);border:1px solid var(--line);color:#cfeeff;
+    padding:10px 12px;font-family:inherit;font-size:14px;letter-spacing:2px;outline:none;
+  }
+  .lobbyCard input:focus{border-color:var(--accent);}
+  .lobbyCard button{
+    background:rgba(0,240,255,.08);border:1px solid var(--accent);color:var(--accent);
+    padding:11px;font-family:inherit;letter-spacing:3px;font-size:12px;cursor:pointer;transition:.15s;
+  }
+  .lobbyCard button:hover{background:rgba(0,240,255,.2);}
+  .lobbyCard button:disabled{opacity:.35;cursor:default;}
+  #lobbyStatus{font-size:11px;color:#7fa8b8;min-height:16px;letter-spacing:1px;}
+  #lobbyStatus.err{color:var(--it);}
+  #lobbyStatus.ok{color:#5fffaf;}
+
+  #roomScreen{display:none;flex-direction:column;align-items:center;gap:14px;}
+  #roomCodeBig{font-size:40px;letter-spacing:10px;color:var(--accent);text-shadow:0 0 16px rgba(0,240,255,.6);}
+  #roomPlayerList{width:380px;background:var(--panel);border:1px solid var(--line);padding:16px 20px;font-size:12px;}
+  #roomPlayerList .rp-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06);}
+  #startGameBtn{width:380px;}
+
+  #endScreen{
+    position:fixed;inset:0;z-index:110;display:none;align-items:center;justify-content:center;flex-direction:column;
+    background:rgba(3,5,10,.85);backdrop-filter:blur(4px);color:#cfeeff;
+  }
+  #endScreen h1{font-size:30px;letter-spacing:6px;color:var(--it);margin-bottom:18px;text-shadow:0 0 14px rgba(255,56,100,.6);}
+  #endScreen .lobbyCard{width:340px;}
+
+  #fpsCounter{position:fixed;bottom:4px;left:4px;color:#345;font-size:10px;z-index:60;}
+
+  #toast{
+    position:fixed;top:120px;left:50%;transform:translateX(-50%);z-index:55;
+    background:var(--panel);border:1px solid var(--accent);padding:8px 18px;font-size:12px;
+    letter-spacing:2px;color:var(--accent);opacity:0;transition:opacity .25s;pointer-events:none;
+  }
+  #toast.show{opacity:1;}
+</style>
+</head>
+<body>
+
+<!-- ======================= LOBBY ======================= -->
+<div id="lobby">
+  <h1>TAGGED-3D</h1>
+  <div class="sub">PARKOUR MULTIPLAYER &middot; PEER-TO-PEER</div>
+
+  <div id="choiceScreen" class="lobbyCard">
+    <h2>YOUR NAME</h2>
+    <input id="nameInput" maxlength="14" placeholder="e.g. RUNNER_07" autocomplete="off">
+  </div>
+
+  <div id="choiceScreen2" class="lobbyCard">
+    <h2>HOST A GAME</h2>
+    <button id="hostBtn">CREATE ROOM</button>
+  </div>
+
+  <div class="lobbyCard">
+    <h2>JOIN A GAME</h2>
+    <input id="codeInput" maxlength="6" placeholder="ROOM CODE" autocomplete="off" style="text-transform:uppercase;letter-spacing:6px;text-align:center;">
+    <button id="joinBtn">JOIN ROOM</button>
+  </div>
+
+  <div id="lobbyStatus"></div>
+
+  <!-- Room waiting screen, shown after host/join succeeds -->
+  <div id="roomScreen">
+    <div class="sub" style="margin:0;">ROOM CODE — SHARE THIS</div>
+    <div id="roomCodeBig">------</div>
+    <div id="roomPlayerList"><div class="rp-row"><span>Connecting…</span><span></span></div></div>
+    <button id="startGameBtn" class="lobbyCard" style="cursor:pointer;">START GAME (HOST ONLY)</button>
+    <div id="roomStatus" style="font-size:11px;color:#7fa8b8;"></div>
+  </div>
+</div>
+
+<!-- ======================= END SCREEN ======================= -->
+<div id="endScreen">
+  <h1>TAGGED OUT</h1>
+  <div class="lobbyCard">
+    <h2>RESULTS</h2>
+    <div id="resultsBody" style="font-size:12px;line-height:1.8;"></div>
+    <button id="returnLobbyBtn">RETURN TO LOBBY</button>
+  </div>
+</div>
+
+<!-- ======================= GAME HUD ======================= -->
+<div id="crosshair" style="display:none;"></div>
+<div id="toast"></div>
+<div id="hud">
+  <div class="panel" id="itBanner">--</div>
+  <div class="panel" id="immunity">TAG IMMUNITY ACTIVE</div>
+
+  <div class="panel" id="speedo">
+    <div id="speedVal">0</div>
+    <div id="speedUnit">UNITS / SEC</div>
+    <div id="speedBarOuter"><div id="speedBarInner"></div></div>
+  </div>
+
+  <div class="panel" id="playerList"><b style="color:var(--accent);letter-spacing:2px;">PLAYERS</b></div>
+
+  <div class="panel" id="controls">
+    <b>CONTROLS</b><br>
+    <span class="k">WASD</span>move<br>
+    <span class="k">MOUSE</span>look<br>
+    <span class="k">SHIFT</span>sprint<br>
+    <span class="k">SPACE</span>jump / wall-jump<br>
+    <span class="k">CTRL</span>crouch / slide<br>
+    <span class="k">E</span>grab ledge<br>
+    <span class="k">ESC</span>release mouse
+  </div>
+
+  <div class="panel" id="roomTag">ROOM <b id="roomTagCode">------</b></div>
+</div>
+
+<div id="fpsCounter">FPS: --</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
+<script>
+/* =========================================================================
+   FREEZE TAG — Peer-to-peer multiplayer parkour tag
+   ---------------------------------------------------------------------
+   ARCHITECTURE
+   - Networking: PeerJS (WebRTC data channels). No backend server required,
+     so this runs entirely on GitHub Pages as static files.
+   - Topology: HOST-AUTHORITATIVE STAR. The room creator is the "host" —
+     every other player (a "client") connects directly to the host only.
+     The host relays state and is the single source of truth for who is
+     "it" and when a tag is valid, which avoids tag-disputes / desync.
+   - Room codes: a PeerJS peer ID IS the room code (shortened, uppercased).
+     Joining = calling peer.connect(hostId).
+   - Simulation: each client runs the FULL local movement controller
+     (same one from the parkour prototype) so their own movement is always
+     responsive / zero input-lag. Position+state snapshots are broadcast
+     ~20x/sec and remote players are rendered from interpolated snapshots.
+   - Tag detection: every client checks "am I 'it' AND am I close enough to
+     someone" locally and SENDS A TAG REQUEST to the host. The host alone
+     decides whether the tag is valid (distance check + immunity check)
+     and broadcasts the authoritative result. This prevents two clients
+     simultaneously believing they tagged each other.
+   ========================================================================= */
+
+// ---------------------------------------------------------------------------
+// SECTION A — NETWORKING LAYER
+// ---------------------------------------------------------------------------
+const Net = {
+  peer: null,
+  isHost: false,
+  roomCode: null,
+  myId: null,
+  myName: 'PLAYER',
+  conns: new Map(),      // peerId -> DataConnection  (host: all clients. client: just the host)
+  hostConn: null,        // client-side connection to host
+  players: new Map(),    // peerId -> { name, isIt, connected }
+  onMessage: null,       // callback(fromId, msg)
+  onPlayerListChanged: null,
+  onPeerDisconnect: null,
+
+  shortCode(id) {
+    // PeerJS ids are long UUID-ish strings; we generate our own short id instead (see createRoom)
+    return id;
+  },
+
+  genRoomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars
+    let s = '';
+    for (let i = 0; i < 5; i++) s += chars[Math.floor(Math.random() * chars.length)];
+    return s;
+  },
+
+  createRoom(name, cb) {
+    this.myName = name;
+    this.isHost = true;
+    const code = 'TAG-' + this.genRoomCode();
+    this.roomCode = code;
+    this.peer = new Peer(code, { debug: 1 });
+
+    this.peer.on('open', (id) => {
+      this.myId = id;
+      this.players.set(id, { name, isIt: false, connected: true });
+      cb(null, code);
+      this.onPlayerListChanged && this.onPlayerListChanged();
+    });
+
+    this.peer.on('connection', (conn) => {
+      conn.on('open', () => {
+        this.conns.set(conn.peer, conn);
+        conn.on('data', (data) => this._handleHostReceive(conn.peer, data));
+        conn.on('close', () => this._handleClientLeft(conn.peer));
+        // Ask the new client to identify themselves; they self-announce on open instead.
+      });
+    });
+
+    this.peer.on('error', (err) => {
+      cb(err.message || String(err), null);
+    });
+  },
+
+  joinRoom(code, name, cb) {
+    this.myName = name;
+    this.isHost = false;
+    this.roomCode = code;
+    this.peer = new Peer({ debug: 1 });
+
+    this.peer.on('open', (id) => {
+      this.myId = id;
+      const conn = this.peer.connect(code, { reliable: true });
+      this.hostConn = conn;
+
+      const failTimer = setTimeout(() => {
+        cb('Room not found or host offline.', null);
+      }, 8000);
+
+      conn.on('open', () => {
+        clearTimeout(failTimer);
+        this.conns.set(code, conn);
+        conn.on('data', (data) => this._handleClientReceive(data));
+        conn.on('close', () => this._handleHostLost());
+        // Announce ourselves to the host
+        this.send(code, { t: 'join', name: this.myName, id: this.myId });
+        cb(null, code);
+      });
+      conn.on('error', (err) => {
+        clearTimeout(failTimer);
+        cb(err.message || String(err), null);
+      });
+    });
+
+    this.peer.on('error', (err) => {
+      cb(err.message || String(err), null);
+    });
+  },
+
+  // --- low level send ---
+  send(peerId, msg) {
+    const conn = this.conns.get(peerId);
+    if (conn && conn.open) conn.send(msg);
+  },
+  broadcast(msg, exceptId = null) {
+    for (const [pid, conn] of this.conns) {
+      if (pid === exceptId) continue;
+      if (conn.open) conn.send(msg);
+    }
+  },
+  sendToHost(msg) {
+    if (this.hostConn && this.hostConn.open) this.hostConn.send(msg);
+  },
+
+  // --- host-side receive: relay + game logic hook ---
+  _handleHostReceive(fromId, data) {
+    if (data.t === 'join') {
+      this.players.set(fromId, { name: data.name, isIt: false, connected: true });
+      // Tell everyone (including sender) the current roster
+      this._broadcastRoster();
+    }
+    this.onMessage && this.onMessage(fromId, data);
+  },
+
+  _handleClientLeft(peerId) {
+    this.conns.delete(peerId);
+    this.players.delete(peerId);
+    if (this.isHost) this._broadcastRoster();
+    this.onPeerDisconnect && this.onPeerDisconnect(peerId);
+    this.onPlayerListChanged && this.onPlayerListChanged();
+  },
+
+  _handleHostLost() {
+    this.onPeerDisconnect && this.onPeerDisconnect(this.roomCode);
+  },
+
+  _broadcastRoster() {
+    const roster = [];
+    for (const [pid, p] of this.players) roster.push({ id: pid, name: p.name, isIt: p.isIt });
+    this.broadcast({ t: 'roster', roster });
+    this._applyRoster(roster);
+  },
+
+  _applyRoster(roster) {
+    const seen = new Set();
+    for (const r of roster) {
+      seen.add(r.id);
+      const existing = this.players.get(r.id) || {};
+      this.players.set(r.id, { name: r.name, isIt: r.isIt, connected: true });
+    }
+    this.onPlayerListChanged && this.onPlayerListChanged();
+  },
+
+  // --- client-side receive ---
+  _handleClientReceive(data) {
+    if (data.t === 'roster') {
+      this._applyRoster(data.roster);
+    }
+    this.onMessage && this.onMessage(this.roomCode, data);
+  },
+
+  // Unified outbound helper used by game code — client sends to host,
+  // host broadcasts to all clients AND processes its own copy via onMessage.
+  emit(msg) {
+    if (this.isHost) {
+      this.broadcast(msg);
+      this.onMessage && this.onMessage(this.myId, msg);
+    } else {
+      this.sendToHost(msg);
+    }
+  },
+  // Host-only: send authoritative result to everyone including self
+  emitAuthoritative(msg) {
+    this.broadcast(msg);
+    this.onMessage && this.onMessage(this.myId, msg);
+  }
+};
+
+
+// ---------------------------------------------------------------------------
+// SECTION B — LOBBY UI WIRING
+// ---------------------------------------------------------------------------
+const el = (id) => document.getElementById(id);
+const lobby = el('lobby');
+const lobbyStatus = el('lobbyStatus');
+const roomScreen = el('roomScreen');
+const choiceScreen = el('choiceScreen');
+const choiceScreen2 = el('choiceScreen2');
+
+function setStatus(msg, cls) {
+  lobbyStatus.textContent = msg;
+  lobbyStatus.className = cls || '';
+}
+
+function getName() {
+  const v = el('nameInput').value.trim();
+  return v.length ? v.slice(0, 14) : 'RUNNER_' + Math.floor(Math.random()*900+100);
+}
+
+el('hostBtn').addEventListener('click', () => {
+  el('hostBtn').disabled = true;
+  setStatus('Creating room…');
+  Net.createRoom(getName(), (err, code) => {
+    el('hostBtn').disabled = false;
+    if (err) { setStatus('Failed to create room: ' + err, 'err'); return; }
+    enterRoomScreen(code, true);
+  });
+});
+
+el('joinBtn').addEventListener('click', () => {
+  const raw = el('codeInput').value.trim().toUpperCase();
+  if (!raw) { setStatus('Enter a room code.', 'err'); return; }
+  const code = raw.startsWith('TAG-') ? raw : ('TAG-' + raw.replace(/^TAG-?/,''));
+  el('joinBtn').disabled = true;
+  setStatus('Connecting to ' + code + '…');
+  Net.joinRoom(code, getName(), (err, joinedCode) => {
+    el('joinBtn').disabled = false;
+    if (err) { setStatus('Could not join: ' + err, 'err'); return; }
+    setStatus('Connected!', 'ok');
+    enterRoomScreen(joinedCode, false);
+  });
+});
+
+function enterRoomScreen(code, isHost) {
+  document.querySelectorAll('.lobbyCard').forEach(c => { if (c.id !== '' ) {} });
+  choiceScreen.style.display = 'none';
+  choiceScreen2.style.display = 'none';
+  document.querySelectorAll('#lobby > .lobbyCard').forEach(c => c.style.display = 'none');
+  roomScreen.style.display = 'flex';
+  el('roomCodeBig').textContent = code.replace('TAG-', '');
+  el('roomTagCode').textContent = code.replace('TAG-', '');
+  el('startGameBtn').style.display = isHost ? 'block' : 'none';
+  el('roomStatus').textContent = isHost ? 'Waiting for players to join…' : 'Waiting for host to start the game…';
+  renderRoomPlayerList();
+}
+
+function renderRoomPlayerList() {
+  const box = el('roomPlayerList');
+  box.innerHTML = '';
+  if (Net.players.size === 0) {
+    box.innerHTML = '<div class="rp-row"><span>Connecting…</span><span></span></div>';
+    return;
+  }
+  for (const [pid, p] of Net.players) {
+    const row = document.createElement('div');
+    row.className = 'rp-row';
+    const isMe = pid === Net.myId;
+    row.innerHTML = `<span>${p.name}${isMe ? ' (you)' : ''}${pid === hostPeerId() ? ' &middot; HOST' : ''}</span><span>READY</span>`;
+    box.appendChild(row);
+  }
+}
+function hostPeerId() {
+  return Net.isHost ? Net.myId : Net.roomCode;
+}
+Net.onPlayerListChanged = () => {
+  renderRoomPlayerList();
+  updateHudPlayerList();
+};
+
+el('startGameBtn').addEventListener('click', () => {
+  if (!Net.isHost) return;
+  if (Net.players.size < 2) {
+    el('roomStatus').textContent = 'Need at least 2 players to start.';
+    return;
+  }
+  startGame(true);
+});
+
+
+// ---------------------------------------------------------------------------
+// SECTION C — GAME STATE / TAG LOGIC
+// ---------------------------------------------------------------------------
+const Game = {
+  started: false,
+  itId: null,
+  immunityUntil: new Map(), // peerId -> timestamp(s) until which they cannot be tagged
+  startTime: 0,
+  tagCounts: new Map(),     // peerId -> times tagged others
+};
+
+const TAG_RANGE = 1.6;
+const TAG_IMMUNITY_SECONDS = 3.0;
+
+function startGame(amHost) {
+  document.querySelectorAll('#lobby > *').forEach(()=>{});
+  lobby.classList.add('hidden');
+  el('hud').style.display = 'block';
+  el('crosshair').style.display = 'block';
+  Game.started = true;
+  Game.startTime = performance.now() / 1000;
+
+  if (amHost) {
+    // Host randomly picks who starts "it" and broadcasts game-start
+    const ids = [...Net.players.keys()];
+    const itPick = ids[Math.floor(Math.random() * ids.length)];
+    Game.itId = itPick;
+    for (const id of ids) Game.tagCounts.set(id, 0);
+    Net.emitAuthoritative({ t: 'gameStart', itId: itPick, ts: performance.now() });
+  }
+
+  renderer.domElement.requestPointerLock();
+  spawnRemotePlayerMeshes();
+  showToast(Game.itId === Net.myId ? "YOU ARE IT — GO TAG SOMEONE" : "RUN! AVOID THE TAGGER");
+}
+
+function showToast(msg) {
+  const t = el('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+function updateHudPlayerList() {
+  const box = el('playerList');
+  box.innerHTML = '<b style="color:var(--accent);letter-spacing:2px;">PLAYERS</b>';
+  for (const [pid, p] of Net.players) {
+    const row = document.createElement('div');
+    row.className = 'pl-row' + (pid === Net.myId ? ' me' : '') + (pid === Game.itId ? ' it' : '');
+    const tagged = Game.tagCounts.get(pid) || 0;
+    row.innerHTML = `<span>${p.name}${pid===Net.myId?' (you)':''}</span><span>${pid===Game.itId?'IT':tagged+' tags'}</span>`;
+    box.appendChild(row);
+  }
+}
+
+// Called every frame locally: if I'm "it", check distance to every remote player.
+// If in range and they're not immune, REQUEST a tag from the host (or, if I AM
+// the host, resolve it immediately).
+let lastTagRequestAt = 0;
+function checkLocalTagAttempt() {
+  if (!Game.started || Game.itId !== Net.myId) return;
+  const now = performance.now() / 1000;
+  if (now - lastTagRequestAt < 0.15) return; // small throttle
+
+  for (const [pid, rp] of remotePlayers) {
+    if (pid === Net.myId) continue;
+    const dist = player.position.distanceTo(rp.lastPos);
+    if (dist < TAG_RANGE) {
+      const immuneUntil = Game.immunityUntil.get(pid) || 0;
+      if (now < immuneUntil) continue;
+      lastTagRequestAt = now;
+      const msg = { t: 'tagRequest', from: Net.myId, target: pid, ts: now };
+      if (Net.isHost) {
+        resolveTagRequest(msg);
+      } else {
+        Net.sendToHost(msg);
+      }
+      break;
+    }
+  }
+}
+
+// HOST ONLY: authoritative tag resolution
+function resolveTagRequest(msg) {
+  if (!Net.isHost) return;
+  const now = performance.now() / 1000;
+  if (msg.from !== Game.itId) return; // stale/invalid — tagger changed since request was sent
+  const immuneUntil = Game.immunityUntil.get(msg.target) || 0;
+  if (now < immuneUntil) return; // target still immune — ignore
+
+  // Valid tag: switch "it", grant immunity to the old "it" briefly too (prevents instant re-tag-back)
+  const oldIt = Game.itId;
+  Game.itId = msg.target;
+  Game.immunityUntil.set(oldIt, now + TAG_IMMUNITY_SECONDS);
+  Game.immunityUntil.set(msg.target, now + 0.5); // tiny grace so they can react
+  Game.tagCounts.set(oldIt, (Game.tagCounts.get(oldIt) || 0) + 1);
+
+  Net.emitAuthoritative({
+    t: 'tagResolved', newIt: msg.target, oldIt, ts: now,
+    immunityFor: oldIt, immunityUntil: now + TAG_IMMUNITY_SECONDS
+  });
+}
+
+function applyTagResolved(data) {
+  Game.itId = data.newIt;
+  Game.immunityUntil.set(data.immunityFor, data.immunityUntil);
+  updateItBanner();
+  updateHudPlayerList();
+  if (data.newIt === Net.myId) {
+    showToast("YOU'VE BEEN TAGGED — YOU'RE IT!");
+  } else if (data.oldIt === Net.myId) {
+    showToast("TAG MADE! " + (Net.players.get(data.newIt)?.name || 'Someone') + ' is now it.');
+  }
+}
+
+function updateItBanner() {
+  const banner = el('itBanner');
+  const meIt = Game.itId === Net.myId;
+  banner.classList.toggle('youAreIt', meIt);
+  banner.classList.toggle('fleeing', !meIt);
+  if (meIt) {
+    banner.textContent = "YOU ARE IT";
+  } else {
+    const itName = Net.players.get(Game.itId)?.name || '???';
+    banner.textContent = itName + " IS IT";
+  }
+  const now = performance.now()/1000;
+  const myImmuneUntil = Game.immunityUntil.get(Net.myId) || 0;
+  el('immunity').classList.toggle('show', now < myImmuneUntil && !meIt);
+}
+
+
+// ---------------------------------------------------------------------------
+// SECTION D — NETWORK MESSAGE ROUTER (game-specific)
+// ---------------------------------------------------------------------------
+Net.onMessage = (fromId, data) => {
+  switch (data.t) {
+    case 'gameStart':
+      if (!Game.started) {
+        Game.itId = data.itId;
+        for (const id of Net.players.keys()) Game.tagCounts.set(id, 0);
+        startGame(false);
+      }
+      break;
+    case 'tagRequest':
+      if (Net.isHost) resolveTagRequest(data);
+      break;
+    case 'tagResolved':
+      applyTagResolved(data);
+      break;
+    case 'state':
+      if (Game.started) applyRemoteState(fromId, data);
+      break;
+  }
+};
+
+Net.onPeerDisconnect = (peerId) => {
+  if (Game.started) showToast((Net.players.get(peerId)?.name || 'A player') + ' disconnected');
+  removeRemotePlayerMesh(peerId);
+  if (Net.isHost && Game.itId === peerId) {
+    // The tagger left — hand "it" to a random remaining player
+    const remaining = [...Net.players.keys()];
+    if (remaining.length > 0) {
+      const newIt = remaining[Math.floor(Math.random()*remaining.length)];
+      Game.itId = newIt;
+      Net.emitAuthoritative({ t: 'tagResolved', newIt, oldIt: peerId, ts: performance.now()/1000, immunityFor: newIt, immunityUntil: performance.now()/1000 + 0.5 });
+    }
+  }
+};
+
+
+// ===========================================================================
+// SECTION E — SCENE / GRAYBOX LEVEL  (same construction approach as the
+// single-player parkour prototype, reused here as the tag arena)
+// ===========================================================================
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x070b12);
+scene.fog = new THREE.FogExp2(0x070b12, 0.011);
+
+const camera = new THREE.PerspectiveCamera(82, window.innerWidth/window.innerHeight, 0.05, 500);
+const BASE_FOV = 82;
+
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const hemi = new THREE.HemisphereLight(0x9fd8ff, 0x10151f, 0.65);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xeaf6ff, 1.15);
+sun.position.set(40, 80, -30);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -120; sun.shadow.camera.right = 120;
+sun.shadow.camera.top = 120; sun.shadow.camera.bottom = -120;
+sun.shadow.camera.far = 300;
+scene.add(sun);
+const rim = new THREE.PointLight(0x00f0ff, 0.6, 60);
+rim.position.set(0, 25, 0);
+scene.add(rim);
+
+const colliders = [];
+function addBlock(x, y, z, w, h, d, color = 0x1c2733, opts = {}) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const mat = new THREE.MeshStandardMaterial({
+    color, roughness: 0.85, metalness: 0.15,
+    emissive: opts.glow ? new THREE.Color(opts.glow) : 0x000000,
+    emissiveIntensity: opts.glow ? 0.35 : 0
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  scene.add(mesh);
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({ color: opts.edgeColor || 0x335166, transparent:true, opacity:0.5 }));
+  mesh.add(edges);
+  colliders.push({ mesh, minX:x-w/2,maxX:x+w/2, minY:y-h/2,maxY:y+h/2, minZ:z-d/2,maxZ:z+d/2,
+    isWall: !!opts.isWall, isVaultable: !!opts.isVaultable, w,h,d });
+  return mesh;
+}
+
+addBlock(0, -0.5, 0, 260, 1, 260, 0x141a22, { edgeColor: 0x2a3a4a });
+addBlock(0, 0, 0, 22, 0.4, 22, 0x1b2430);
+
+// Vault row
+addBlock(-12, 0.5, 12, 3, 1, 1.2, 0x223040, { isVaultable: true, edgeColor: 0x00f0ff });
+addBlock(-8, 0.65, 12, 3, 1.3, 1.2, 0x223040, { isVaultable: true, edgeColor: 0x00f0ff });
+addBlock(-4, 0.8, 12, 3, 1.6, 1.2, 0x223040, { isVaultable: true, edgeColor: 0x00f0ff });
+
+// Wall-run corridor
+addBlock(16, 4, 0, 0.6, 8, 30, 0x18222c, { isWall: true, edgeColor: 0xff3864, glow: 0x220008 });
+addBlock(22, 4, 0, 0.6, 8, 30, 0x18222c, { isWall: true, edgeColor: 0xff3864, glow: 0x220008 });
+addBlock(19, 0, 18, 6, 0.4, 4, 0x1b2430);
+addBlock(19, 3.2, -18, 6, 0.4, 4, 0x1b2430);
+
+// Slope
+const slopeGeo = new THREE.BoxGeometry(8, 0.5, 22);
+const slopeMat = new THREE.MeshStandardMaterial({ color: 0x202b38, roughness: 0.8 });
+const slope = new THREE.Mesh(slopeGeo, slopeMat);
+slope.position.set(-24, 4, -12);
+slope.rotation.x = -0.45;
+slope.castShadow = true; slope.receiveShadow = true;
+scene.add(slope);
+colliders.push({ mesh: slope, isSlope: true, slopeAngle: -0.45,
+  minX:-28, maxX:-20, minY:0, maxY:9, minZ:-24, maxZ:0, w:8, h:0.5, d:22 });
+addBlock(-24, 8.3, -24, 10, 0.4, 6, 0x1b2430);
+addBlock(-24, -0.2, 2, 10, 0.4, 10, 0x1b2430);
+
+// Ledge gap
+addBlock(2, 6, -32, 6, 0.6, 6, 0x1b2430, { edgeColor: 0x00f0ff });
+addBlock(2, 6.3, -44, 6, 0.6, 6, 0x1b2430, { edgeColor: 0xff3864, glow: 0x1a0008 });
+
+// Central scatter platforms for chase variety
+const stairColors = [0x1b2430, 0x202b38, 0x18222c, 0x223040, 0x1c2733];
+for (let i = 0; i < 6; i++) {
+  addBlock(30 + i*5, 0.5 + (i%3)*1.4, 26 + (i%4)*5, 4, 0.5, 4, stairColors[i % stairColors.length], { edgeColor: 0x00f0ff, isVaultable: i%2===0 });
+}
+addBlock(-30, 1.2, 26, 5, 0.5, 5, 0x1b2430, { edgeColor: 0x00f0ff });
+addBlock(-38, 2.4, 32, 5, 0.5, 5, 0x1b2430, { edgeColor: 0x00f0ff });
+addBlock(-44, 0.6, 18, 5, 0.5, 5, 0x1b2430, { edgeColor: 0x00f0ff });
+
+// Boundary walls
+addBlock(0, 6, -130, 260, 14, 1, 0x0c1118, { edgeColor:0x223040 });
+addBlock(0, 6, 130, 260, 14, 1, 0x0c1118, { edgeColor:0x223040 });
+addBlock(-130, 6, 0, 1, 14, 260, 0x0c1118, { edgeColor:0x223040 });
+addBlock(130, 6, 0, 1, 14, 260, 0x0c1118, { edgeColor:0x223040 });
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Spawn points — players are distributed across these on game start
+const SPAWN_POINTS = [
+  new THREE.Vector3(0, 1.7, 6), new THREE.Vector3(4, 1.7, 6), new THREE.Vector3(-4, 1.7, 6),
+  new THREE.Vector3(0, 1.7, -6), new THREE.Vector3(6, 1.7, 2), new THREE.Vector3(-6, 1.7, 2),
+  new THREE.Vector3(2, 1.7, 9), new THREE.Vector3(-2, 1.7, 9),
+];
+function spawnPointFor(peerIndex) { return SPAWN_POINTS[peerIndex % SPAWN_POINTS.length]; }
+
+
+// ===========================================================================
+// SECTION F — TUNABLE MOVEMENT CONSTANTS (identical model to the single-player build)
+// ===========================================================================
+const TUNE = {
+  walkSpeed: 6.0, sprintSpeed: 9.5, acceleration: 60, groundFriction: 9.0,
+  airAcceleration: 28, airFriction: 0.6,
+  jumpForce: 8.6, gravity: 22, coyoteTime: 0.12, jumpBufferTime: 0.12,
+  crouchHeight: 0.9, standHeight: 1.8, slideSpeedThreshold: 6.5, slideBoost: 1.35,
+  slideFriction: 1.4, slopeSlideAccel: 14,
+  wallRunMinSpeed: 4.0, wallRunGravity: 4.0, wallRunSpeedGain: 6.0, wallRunMaxDuration: 2.2,
+  wallJumpForce: 9.0, wallJumpPushForce: 7.5, wallDetectDistance: 0.9,
+  vaultMaxHeight: 1.7, vaultMinHeight: 0.3, vaultDuration: 0.32, vaultDetectDistance: 1.1,
+  ledgeGrabRange: 1.3, ledgeGrabVerticalTolerance: 1.0, ledgeClimbDuration: 0.35,
+  momentumDecay: 0.18, momentumGainWallRun: 0.45, momentumGainSlide: 0.55,
+  momentumGainBhop: 0.22, momentumGainBhopSprintBonus: 0.18, momentumMaxMultiplier: 2.6, bhopWindow: 0.16,
+  mouseSensitivity: 0.0022, eyeHeight: 1.7, playerRadius: 0.4,
+};
+
+const player = {
+  position: new THREE.Vector3(0, TUNE.eyeHeight, 6),
+  velocity: new THREE.Vector3(0,0,0),
+  height: TUNE.standHeight, targetHeight: TUNE.standHeight, radius: TUNE.playerRadius,
+  onGround: false, timeSinceGrounded: 0, timeSinceJumpPressed: 999, lastLandTime: -999,
+  isSprinting: false, isCrouching: false, isSliding: false, slideDir: new THREE.Vector3(),
+  isWallRunning: false, wallRunSide: 0, wallRunNormal: new THREE.Vector3(), wallRunTime: 0, wallRunCooldown: 0,
+  isVaulting: false, vaultTimer: 0, vaultStart: new THREE.Vector3(), vaultEnd: new THREE.Vector3(),
+  isLedgeHanging: false, isClimbingLedge: false, climbTimer: 0, ledgePos: new THREE.Vector3(), ledgeForward: new THREE.Vector3(),
+  momentumMultiplier: 1.0, canGrabLedge: false, ledgeCandidate: null,
+};
+
+const yawObject = new THREE.Object3D();
+const pitchObject = new THREE.Object3D();
+pitchObject.add(camera);
+yawObject.add(pitchObject);
+yawObject.position.copy(player.position);
+scene.add(yawObject);
+let yaw = Math.PI, pitch = 0;
+yawObject.rotation.y = yaw;
+
+const keys = {};
+let pointerLocked = false;
+document.addEventListener('keydown', (e) => { keys[e.code] = true; if (e.code === 'Space') player.timeSinceJumpPressed = 0; });
+document.addEventListener('keyup', (e) => { keys[e.code] = false; });
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === renderer.domElement;
+});
+document.addEventListener('mousemove', (e) => {
+  if (!pointerLocked) return;
+  yaw -= e.movementX * TUNE.mouseSensitivity;
+  pitch -= e.movementY * TUNE.mouseSensitivity;
+  pitch = Math.max(-Math.PI/2+0.05, Math.min(Math.PI/2-0.05, pitch));
+  yawObject.rotation.y = yaw;
+  pitchObject.rotation.x = pitch;
+});
+
+const raycaster = new THREE.Raycaster();
+const DOWN = new THREE.Vector3(0,-1,0);
+function getForwardVector(includeY=false){ const d=new THREE.Vector3(); camera.getWorldDirection(d); if(!includeY) d.y=0; d.normalize(); return d; }
+function getRightVector(){ const f=getForwardVector(); return new THREE.Vector3().crossVectors(f,new THREE.Vector3(0,1,0)).normalize(); }
+
+function groundCheck(){
+  const origin = player.position.clone();
+  origin.y -= (TUNE.eyeHeight - 0.05);
+  raycaster.set(origin, DOWN); raycaster.far = 0.25;
+  const hits = raycaster.intersectObjects(colliders.map(c=>c.mesh), false);
+  if (hits.length>0) return { grounded:true, point:hits[0].point };
+  return { grounded:false };
+}
+function wallCheck(){
+  const right = getRightVector();
+  const dirs = [{side:-1,dir:right.clone().negate()},{side:1,dir:right.clone()}];
+  for (const d of dirs){
+    raycaster.set(player.position, d.dir); raycaster.far = TUNE.wallDetectDistance;
+    const wallMeshes = colliders.filter(c=>c.isWall).map(c=>c.mesh);
+    const hits = raycaster.intersectObjects(wallMeshes,false);
+    if (hits.length>0) return { found:true, side:d.side, normal:hits[0].face.normal.clone(), point:hits[0].point };
+  }
+  return { found:false };
+}
+function forwardCheck(distance){
+  const fwd = getForwardVector();
+  raycaster.set(player.position, fwd); raycaster.far = distance;
+  const meshes = colliders.filter(c=>!c.isWall).map(c=>c.mesh);
+  const hits = raycaster.intersectObjects(meshes,false);
+  if (hits.length>0) return { found:true, point:hits[0].point, collider: colliders.find(c=>c.mesh===hits[0].object) };
+  return { found:false };
+}
+
+function resolveCollisions(){
+  const r = player.radius;
+  const feetY = player.position.y - TUNE.eyeHeight;
+  const headY = feetY + player.height;
+  for (const c of colliders){
+    if (c.isSlope) continue;
+    const px=player.position.x, pz=player.position.z;
+    const overlapX = (px+r>c.minX)&&(px-r<c.maxX);
+    const overlapZ = (pz+r>c.minZ)&&(pz-r<c.maxZ);
+    const overlapY = (headY>c.minY)&&(feetY<c.maxY);
+    if (overlapX&&overlapZ&&overlapY){
+      const penLeft=(px+r)-c.minX, penRight=c.maxX-(px-r), penBack=(pz+r)-c.minZ, penFront=c.maxZ-(pz-r), penTop=c.maxY-feetY;
+      const min = Math.min(penLeft,penRight,penBack,penFront,penTop);
+      if (min===penTop){ player.position.y=c.maxY+TUNE.eyeHeight; if(player.velocity.y<0) player.velocity.y=0; }
+      else if (min===penLeft){ player.position.x=c.minX-r; if(player.velocity.x>0) player.velocity.x=0; }
+      else if (min===penRight){ player.position.x=c.maxX+r; if(player.velocity.x<0) player.velocity.x=0; }
+      else if (min===penBack){ player.position.z=c.minZ-r; if(player.velocity.z>0) player.velocity.z=0; }
+      else if (min===penFront){ player.position.z=c.maxZ+r; if(player.velocity.z<0) player.velocity.z=0; }
+    }
+  }
+  for (const c of colliders){
+    if (!c.isSlope) continue;
+    const px=player.position.x, pz=player.position.z;
+    if (px>c.minX&&px<c.maxX&&pz>c.minZ&&pz<c.maxZ){
+      const localZ = pz - c.mesh.position.z;
+      const heightAtZ = c.mesh.position.y - Math.tan(c.slopeAngle)*localZ;
+      const feetTarget = heightAtZ + 0.25;
+      const feetY2 = player.position.y - TUNE.eyeHeight;
+      const withinSnapRange = feetY2 >= feetTarget-0.05 && feetY2 < feetTarget+0.35;
+      if (withinSnapRange && player.velocity.y<=0.1){
+        player.position.y = feetTarget + TUNE.eyeHeight;
+        player.velocity.y = 0; player._onSlope = true; player._slopeAngle = c.slopeAngle;
+      }
+    }
+  }
+}
+
+const clock = new THREE.Clock();
+function applyMomentumDecay(dt){
+  if (player.momentumMultiplier>1.0){ player.momentumMultiplier -= TUNE.momentumDecay*dt; if(player.momentumMultiplier<1.0) player.momentumMultiplier=1.0; }
+}
+function bankMomentum(amount){ player.momentumMultiplier = Math.min(TUNE.momentumMaxMultiplier, player.momentumMultiplier+amount); }
+
+function updateMovement(dt){
+  dt = Math.min(dt, 0.05);
+  player._onSlope = false;
+  player.timeSinceJumpPressed += dt;
+  if (player.onGround) player.timeSinceGrounded=0; else player.timeSinceGrounded += dt;
+  if (player.wallRunCooldown>0) player.wallRunCooldown -= dt;
+
+  const moveF = (keys['KeyW']?1:0)-(keys['KeyS']?1:0);
+  const moveR = (keys['KeyD']?1:0)-(keys['KeyA']?1:0);
+  player.isSprinting = !!keys['ShiftLeft']||!!keys['ShiftRight'];
+  const wantsCrouch = !!keys['ControlLeft']||!!keys['ControlRight']||!!keys['KeyC'];
+  const wantsJump = player.timeSinceJumpPressed < TUNE.jumpBufferTime;
+  const wantsGrab = !!keys['KeyE'];
+
+  if (player.isClimbingLedge){
+    player.climbTimer += dt;
+    const t = Math.min(1, player.climbTimer/TUNE.ledgeClimbDuration);
+    const target = player.ledgePos.clone().add(new THREE.Vector3(0,TUNE.eyeHeight+0.1,0)).add(player.ledgeForward.clone().multiplyScalar(0.6));
+    player.position.lerpVectors(player._climbStart, target, t);
+    player.velocity.set(0,0,0);
+    if (t>=1){ player.isClimbingLedge=false; player.onGround=true; }
+    finalizeFrame(dt); return;
+  }
+  if (player.isLedgeHanging){
+    player.velocity.set(0,0,0);
+    if (wantsJump){
+      player.isLedgeHanging=false;
+      player.velocity.copy(player.ledgeForward).multiplyScalar(-5);
+      player.velocity.y = TUNE.jumpForce*0.7;
+    } else if (!wantsGrab){
+      player.isLedgeHanging=false;
+    } else if (keys['KeyW']){
+      player.isLedgeHanging=false; player.isClimbingLedge=true; player.climbTimer=0; player._climbStart=player.position.clone();
+    }
+    finalizeFrame(dt); return;
+  }
+  if (player.isVaulting){
+    player.vaultTimer += dt;
+    const t = Math.min(1, player.vaultTimer/TUNE.vaultDuration);
+    const eased = t<0.5 ? 2*t*t : -1+(4-2*t)*t;
+    player.position.lerpVectors(player.vaultStart, player.vaultEnd, eased);
+    if (t>=1){ player.isVaulting=false; player.velocity.copy(getForwardVector()).multiplyScalar(player.preVaultSpeed); player.onGround=true; }
+    finalizeFrame(dt); return;
+  }
+
+  const gc = groundCheck();
+  const wasGrounded = player.onGround;
+  player.onGround = gc.grounded && player.velocity.y<=0.1;
+  if (player.onGround && !wasGrounded) player.lastLandTime = clock.elapsedTime;
+
+  if (player.onGround && !player.isWallRunning && moveF>0){
+    const fwd = forwardCheck(TUNE.vaultDetectDistance);
+    if (fwd.found && fwd.collider && fwd.collider.isVaultable){
+      const obstacleTopY = fwd.collider.maxY;
+      const playerFeetY = player.position.y - TUNE.eyeHeight;
+      const heightAboveFeet = obstacleTopY - playerFeetY;
+      if (heightAboveFeet>TUNE.vaultMinHeight && heightAboveFeet<=TUNE.vaultMaxHeight){
+        player.isVaulting=true; player.vaultTimer=0;
+        player.preVaultSpeed = Math.max(player.velocity.length(), TUNE.walkSpeed);
+        player.vaultStart = player.position.clone();
+        const landSpot = fwd.point.clone();
+        landSpot.y = obstacleTopY + TUNE.eyeHeight + 0.05;
+        landSpot.add(getForwardVector().multiplyScalar(0.9));
+        player.vaultEnd = landSpot;
+        bankMomentum(0.08);
+        finalizeFrame(dt); return;
+      }
+    }
+  }
+
+  player.canGrabLedge = false;
+  if (!player.onGround && player.velocity.y<4){
+    const fwd = forwardCheck(TUNE.ledgeGrabRange);
+    if (fwd.found && fwd.collider){
+      const topY = fwd.collider.maxY ?? (fwd.collider.mesh.position.y + fwd.collider.h/2);
+      const diff = topY - (player.position.y - 0.35);
+      if (Math.abs(diff)<TUNE.ledgeGrabVerticalTolerance && diff<0.5){
+        player.canGrabLedge = true;
+        if (wantsGrab){
+          player.isLedgeHanging = true; player.velocity.set(0,0,0);
+          player.ledgePos.set(player.position.x, topY, player.position.z);
+          player.ledgeForward = getForwardVector().clone();
+          player.position.set(
+            fwd.point.x - getForwardVector().x*(player.radius+0.15),
+            topY+0.05-0.1,
+            fwd.point.z - getForwardVector().z*(player.radius+0.15)
+          );
+          bankMomentum(0.1);
+          finalizeFrame(dt); return;
+        }
+      }
+    }
+  }
+
+  const horizSpeed = Math.hypot(player.velocity.x, player.velocity.z);
+  if (!player.onGround && player.wallRunCooldown<=0){
+    const wc = wallCheck();
+    if (wc.found && horizSpeed>TUNE.wallRunMinSpeed && keys['KeyW']){
+      if (!player.isWallRunning){ player.isWallRunning=true; player.wallRunTime=0; player.wallRunSide=wc.side; }
+      player.wallRunNormal.copy(wc.normal);
+    } else if (player.isWallRunning){ player.isWallRunning=false; player.wallRunCooldown=0.25; }
+  } else if (player.isWallRunning && player.onGround){ player.isWallRunning=false; player.wallRunCooldown=0.25; }
+
+  if (player.isWallRunning){
+    player.wallRunTime += dt;
+    const fwd = getForwardVector();
+    const wallForward = fwd.clone().sub(player.wallRunNormal.clone().multiplyScalar(fwd.dot(player.wallRunNormal))).normalize();
+    const currentSpeed = Math.hypot(player.velocity.x, player.velocity.z);
+    const targetSpeed = Math.min(currentSpeed + TUNE.wallRunSpeedGain*dt, TUNE.sprintSpeed*player.momentumMultiplier*1.15);
+    player.velocity.x = wallForward.x*targetSpeed;
+    player.velocity.z = wallForward.z*targetSpeed;
+    player.velocity.y -= TUNE.wallRunGravity*dt;
+    player.velocity.y = Math.max(player.velocity.y, -3);
+    bankMomentum(TUNE.momentumGainWallRun*dt);
+    if (wantsJump){
+      player.velocity.y = TUNE.wallJumpForce;
+      player.velocity.x += player.wallRunNormal.x*TUNE.wallJumpPushForce;
+      player.velocity.z += player.wallRunNormal.z*TUNE.wallJumpPushForce;
+      player.isWallRunning=false; player.wallRunCooldown=0.3; player.timeSinceJumpPressed=999;
+      bankMomentum(0.15);
+    }
+    if (player.wallRunTime>TUNE.wallRunMaxDuration){ player.isWallRunning=false; player.wallRunCooldown=0.25; }
+    finalizeFrame(dt); return;
+  }
+
+  const groundSpeed = Math.hypot(player.velocity.x, player.velocity.z);
+  if (wantsCrouch && player.onGround && !player.isSliding && groundSpeed>TUNE.slideSpeedThreshold && player.isSprinting){
+    player.isSliding = true;
+    const dir = new THREE.Vector3(player.velocity.x,0,player.velocity.z).normalize();
+    player.slideDir.copy(dir);
+    const boosted = groundSpeed*TUNE.slideBoost;
+    player.velocity.x = dir.x*boosted; player.velocity.z = dir.z*boosted;
+    bankMomentum(0.15);
+  }
+  if (player.isSliding && (!wantsCrouch || groundSpeed<1.5)) player.isSliding=false;
+  player.isCrouching = wantsCrouch && !player.isSliding;
+  player.targetHeight = (player.isCrouching||player.isSliding) ? TUNE.crouchHeight : TUNE.standHeight;
+  player.height += (player.targetHeight - player.height) * Math.min(1, dt*12);
+
+  const fwd = getForwardVector();
+  const right = getRightVector();
+  const wishDir = new THREE.Vector3().addScaledVector(fwd,moveF).addScaledVector(right,moveR);
+  if (wishDir.lengthSq()>0) wishDir.normalize();
+
+  if (player.isSliding){
+    const fr = TUNE.slideFriction;
+    player.velocity.x -= player.velocity.x*fr*dt;
+    player.velocity.z -= player.velocity.z*fr*dt;
+    if (player._onSlope){
+      const downhill = player._slopeAngle<0 ? -1:1;
+      player.velocity.z += downhill*TUNE.slopeSlideAccel*dt*-1;
+      bankMomentum(TUNE.momentumGainSlide*dt);
+    }
+    if (Math.hypot(player.velocity.x,player.velocity.z)<0.8) player.isSliding=false;
+  } else {
+    const baseTarget = player.isSprinting ? TUNE.sprintSpeed : TUNE.walkSpeed;
+    const targetSpeed = baseTarget * player.momentumMultiplier;
+    const accel = player.onGround ? TUNE.acceleration : TUNE.airAcceleration;
+    const friction = player.onGround ? TUNE.groundFriction : TUNE.airFriction;
+    if (wishDir.lengthSq()>0){
+      const targetVX = wishDir.x*targetSpeed, targetVZ = wishDir.z*targetSpeed;
+      player.velocity.x = THREE.MathUtils.damp(player.velocity.x, targetVX, accel/3, dt);
+      player.velocity.z = THREE.MathUtils.damp(player.velocity.z, targetVZ, accel/3, dt);
+    } else {
+      player.velocity.x -= player.velocity.x*friction*dt;
+      player.velocity.z -= player.velocity.z*friction*dt;
+    }
+  }
+
+  const canCoyoteJump = player.timeSinceGrounded < TUNE.coyoteTime;
+  if (wantsJump && (player.onGround||canCoyoteJump)){
+    const sinceLand = clock.elapsedTime - player.lastLandTime;
+    if (sinceLand<TUNE.bhopWindow && sinceLand>0.001){
+      const bhopGain = TUNE.momentumGainBhop + (player.isSprinting?TUNE.momentumGainBhopSprintBonus:0);
+      bankMomentum(bhopGain);
+    }
+    player.velocity.y = TUNE.jumpForce;
+    player.onGround = false; player.timeSinceJumpPressed=999; player.timeSinceGrounded=TUNE.coyoteTime;
+  } else if (!player.onGround){
+    player.velocity.y -= TUNE.gravity*dt;
+  }
+  finalizeFrame(dt);
+}
+
+function finalizeFrame(dt){
+  player.position.x += player.velocity.x*dt;
+  player.position.y += player.velocity.y*dt;
+  player.position.z += player.velocity.z*dt;
+  resolveCollisions();
+  applyMomentumDecay(dt);
+  yawObject.position.copy(player.position);
+  yawObject.position.y = player.position.y - (TUNE.standHeight - player.height)*0.5;
+}
+
+let bobTime = 0;
+function updateCameraEffects(dt){
+  const flatSpeed = Math.hypot(player.velocity.x, player.velocity.z);
+  const speedRatio = THREE.MathUtils.clamp(flatSpeed/(TUNE.sprintSpeed*TUNE.momentumMaxMultiplier),0,1);
+  const targetFov = BASE_FOV + speedRatio*18 + (player.isWallRunning?4:0);
+  camera.fov = THREE.MathUtils.damp(camera.fov, targetFov, 6, dt);
+  camera.updateProjectionMatrix();
+  const targetTilt = player.isWallRunning ? (player.wallRunSide>0?-0.12:0.12) : 0;
+  camera.rotation.z = THREE.MathUtils.damp(camera.rotation.z, targetTilt, 8, dt);
+  if (player.onGround && flatSpeed>0.5 && !player.isSliding){
+    bobTime += dt*flatSpeed*1.6;
+    camera.position.y = Math.sin(bobTime)*0.025*(player.isSprinting?1.4:1);
+    camera.position.x = Math.cos(bobTime*0.5)*0.015;
+  } else {
+    camera.position.y = THREE.MathUtils.damp(camera.position.y,0,8,dt);
+    camera.position.x = THREE.MathUtils.damp(camera.position.x,0,8,dt);
+  }
+  if (player.isSliding) camera.position.y = THREE.MathUtils.damp(camera.position.y,-0.15,6,dt);
+}
+
+
+// ===========================================================================
+// SECTION G — REMOTE PLAYERS (rendering + state sync)
+// ===========================================================================
+const remotePlayers = new Map(); // peerId -> { mesh, lastPos, targetPos, targetYaw, label, isIt }
+
+function makePlayerMesh(isIt) {
+  const group = new THREE.Group();
+  const bodyGeo = new THREE.CapsuleGeometry(0.4, 1.0, 4, 8);
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: isIt ? 0xff3864 : 0x00aaff, emissive: isIt ? 0x551018 : 0x002a3a, emissiveIntensity: 0.6, roughness: 0.5
+  });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 0.9;
+  body.castShadow = true;
+  group.add(body);
+  // direction indicator
+  const noseGeo = new THREE.ConeGeometry(0.12, 0.3, 6);
+  const nose = new THREE.Mesh(noseGeo, new THREE.MeshStandardMaterial({ color: 0xffffff }));
+  nose.rotation.x = Math.PI/2;
+  nose.position.set(0, 1.5, -0.45);
+  group.add(nose);
+  group.userData.body = body;
+  group.userData.bodyMat = bodyMat;
+  scene.add(group);
+  return group;
+}
+
+function makeNameSprite(text) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.font = 'bold 28px Consolas, monospace';
+  ctx.fillStyle = '#bfe9ff';
+  ctx.textAlign = 'center';
+  ctx.fillText(text.slice(0,14), 128, 42);
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(2, 0.5, 1);
+  sprite.position.y = 2.3;
+  return sprite;
+}
+
+function spawnRemotePlayerMeshes() {
+  let idx = 0;
+  const ids = [...Net.players.keys()];
+  for (const [pid, p] of Net.players) {
+    if (pid === Net.myId) {
+      const spawn = spawnPointFor(ids.indexOf(pid));
+      player.position.copy(spawn);
+      player.velocity.set(0,0,0);
+      idx++;
+      continue;
+    }
+    if (remotePlayers.has(pid)) continue;
+    const mesh = makePlayerMesh(pid === Game.itId);
+    const spawn = spawnPointFor(ids.indexOf(pid));
+    mesh.position.copy(spawn);
+    mesh.position.y -= TUNE.eyeHeight; // mesh origin is at feet, player.position is eye-height
+    const label = makeNameSprite(p.name);
+    mesh.add(label);
+    remotePlayers.set(pid, {
+      mesh, lastPos: spawn.clone(), targetPos: spawn.clone(), prevPos: spawn.clone(),
+      targetYaw: 0, currentYaw: 0, label, lerpT: 1
+    });
+    idx++;
+  }
+}
+
+function removeRemotePlayerMesh(pid) {
+  const rp = remotePlayers.get(pid);
+  if (rp) { scene.remove(rp.mesh); remotePlayers.delete(pid); }
+}
+
+function applyRemoteState(fromId, data) {
+  if (fromId === Net.myId) return;
+  let rp = remotePlayers.get(fromId);
+  if (!rp) {
+    // Late-joining mesh creation (e.g. state arrived before roster fully applied)
+    spawnRemotePlayerMeshes();
+    rp = remotePlayers.get(fromId);
+    if (!rp) return;
+  }
+  rp.prevPos.copy(rp.targetPos);
+  rp.targetPos.set(data.x, data.y, data.z);
+  rp.targetYaw = data.yaw;
+  rp.lerpT = 0;
+}
+
+const STATE_SEND_INTERVAL = 1/18; // ~18Hz
+let lastStateSend = 0;
+function broadcastMyState(now) {
+  if (now - lastStateSend < STATE_SEND_INTERVAL) return;
+  lastStateSend = now;
+  const feetPos = player.position.clone();
+  feetPos.y -= TUNE.eyeHeight;
+  Net.emit({ t:'state', x: feetPos.x, y: feetPos.y, z: feetPos.z, yaw });
+}
+
+function updateRemotePlayers(dt) {
+  for (const [pid, rp] of remotePlayers) {
+    rp.lerpT = Math.min(1, rp.lerpT + dt * (1/STATE_SEND_INTERVAL) * 0.9);
+    rp.mesh.position.lerpVectors(rp.prevPos, rp.targetPos, rp.lerpT);
+    rp.lastPos.copy(rp.mesh.position).setY(rp.mesh.position.y + TUNE.eyeHeight);
+    rp.currentYaw = THREE.MathUtils.damp(rp.currentYaw, rp.targetYaw, 10, dt);
+    rp.mesh.rotation.y = rp.currentYaw;
+    // Update color if "it" status changed
+    const shouldBeIt = pid === Game.itId;
+    const mat = rp.mesh.userData.bodyMat;
+    const targetColor = shouldBeIt ? 0xff3864 : 0x00aaff;
+    if (mat.color.getHex() !== targetColor) {
+      mat.color.setHex(targetColor);
+      mat.emissive.setHex(shouldBeIt ? 0x551018 : 0x002a3a);
+    }
+  }
+}
+
+
+// ===========================================================================
+// SECTION H — HUD UPDATE
+// ===========================================================================
+const elSpeedVal = el('speedVal');
+const elSpeedBar = el('speedBarInner');
+
+function updateHUD(){
+  const flatSpeed = Math.hypot(player.velocity.x, player.velocity.z);
+  elSpeedVal.textContent = flatSpeed.toFixed(1);
+  const maxDisplaySpeed = TUNE.sprintSpeed * TUNE.momentumMaxMultiplier;
+  elSpeedBar.style.width = `${THREE.MathUtils.clamp((flatSpeed/maxDisplaySpeed)*100,0,100)}%`;
+  updateItBanner();
+}
+
+
+// ===========================================================================
+// SECTION I — END GAME / RETURN TO LOBBY (simple: host can end, or just leave)
+// ===========================================================================
+el('returnLobbyBtn').addEventListener('click', () => {
+  location.reload();
+});
+
+
+// ===========================================================================
+// SECTION J — MAIN LOOP
+// ===========================================================================
+const fpsEl = el('fpsCounter');
+let lastFpsUpdate = 0, frameCount = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  const now = performance.now()/1000;
+
+  if (Game.started && pointerLocked) {
+    updateMovement(dt);
+    updateCameraEffects(dt);
+    checkLocalTagAttempt();
+    broadcastMyState(now);
+  }
+  if (Game.started) {
+    updateRemotePlayers(dt);
+    updateHUD();
+  }
+
+  frameCount++;
+  if (clock.elapsedTime - lastFpsUpdate > 0.5) {
+    fpsEl.textContent = `FPS: ${Math.round(frameCount/(clock.elapsedTime-lastFpsUpdate))}`;
+    frameCount = 0; lastFpsUpdate = clock.elapsedTime;
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
