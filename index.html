@@ -2,43 +2,44 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>VELOCITY: NATIVE EDITION</title>
+    <title>NEON VELOCITY: PARKOUR</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #87CEEB; font-family: sans-serif; }
-        #ui { position: absolute; top: 20px; left: 20px; color: #fff; pointer-events: none; text-shadow: 2px 2px 2px #000; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Arial Black', sans-serif; }
+        #ui { position: absolute; top: 20px; left: 20px; color: #0ff; pointer-events: none; text-shadow: 0 0 10px #0ff; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
     <div id="ui">
         <h1 id="speed">VELOCITY: 0</h1>
-        <p>CLICK to play | WASD to move | SPACE to jump</p>
+        <p>SPACE: Jump | SHIFT: Slide</p>
     </div>
     <script>
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87CEEB);
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // Player state
-        const p = { x: 0, y: 10, z: 0, vx: 0, vy: 0, vz: 0, isGrounded: false };
+        const p = { x: 0, y: 10, z: 0, vx: 0, vy: 0, vz: 0, isGrounded: false, isSliding: false };
         const platforms = [];
 
-        // Level Gen
         function addPlat(x,y,z,w,d, color, isBoost) {
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, 2, d), new THREE.MeshLambertMaterial({color}));
+            const mat = new THREE.MeshPhongMaterial({color, emissive: color, emissiveIntensity: 0.5});
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, 2, d), mat);
             mesh.position.set(x, y, z);
             scene.add(mesh);
             platforms.push({x, y, z, w, d, isBoost});
         }
 
-        addPlat(0, -2, 0, 40, 40, 0xffffff); // Start
-        for(let i=0; i<20; i++) addPlat(0, -2, -60 - (i*40), 20, 30, (i%3===0?0x00ff00:0x333333), i%3===0);
+        // Shorter starting gaps
+        addPlat(0, -2, 0, 40, 40, 0xff00ff, false);
+        for(let i=0; i<30; i++) addPlat(0, -2, -60 - (i*30), 20, 20, (i%3===0?0x00ff00:0x00ffff), i%3===0);
 
-        scene.add(new THREE.DirectionalLight(0xffffff, 1));
-        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+        const light = new THREE.DirectionalLight(0xff00ff, 1);
+        light.position.set(10, 10, 10);
+        scene.add(light);
 
         let keys = {}, yaw = 0, pitch = 0;
         window.onkeydown = e => keys[e.code] = true;
@@ -49,28 +50,38 @@
         function animate() {
             requestAnimationFrame(animate);
             
-            // Movement
+            p.isSliding = keys['ShiftLeft'];
             const fwd = new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0, yaw, 0));
             const right = new THREE.Vector3(1,0,0).applyEuler(new THREE.Euler(0, yaw, 0));
-            if(keys['KeyW']) { p.vx += fwd.x*0.05; p.vz += fwd.z*0.05; }
-            if(keys['KeyS']) { p.vx -= fwd.x*0.05; p.vz -= fwd.z*0.05; }
-            if(keys['Space'] && p.isGrounded) p.vy = 0.4;
+            
+            const speed = p.isSliding ? 0.08 : 0.05;
+            if(keys['KeyW']) { p.vx += fwd.x*speed; p.vz += fwd.z*speed; }
+            if(keys['KeyS']) { p.vx -= fwd.x*speed; p.vz -= fwd.z*speed; }
+            
+            // Bhop: Boost if jumping while moving fast
+            if(keys['Space'] && p.isGrounded) { 
+                p.vy = 0.4; 
+                if(Math.abs(p.vx) > 0.1 || Math.abs(p.vz) > 0.1) p.vy += 0.1; 
+            }
 
-            p.vx *= 0.9; p.vz *= 0.9; p.vy -= 0.02;
+            p.vx *= (p.isSliding ? 0.98 : 0.9); 
+            p.vz *= (p.isSliding ? 0.98 : 0.9); 
+            p.vy -= 0.02;
             p.x += p.vx; p.y += p.vy; p.z += p.vz;
 
-            // Collision
             p.isGrounded = false;
             platforms.forEach(plat => {
                 if(Math.abs(p.x - plat.x) < plat.w/2 && Math.abs(p.z - plat.z) < plat.d/2 && Math.abs(p.y - plat.y) < 2) {
                     p.y = plat.y + 2; p.vy = 0; p.isGrounded = true;
-                    if(plat.isBoost) p.vx *= 2;
+                    if(plat.isBoost) { p.vx *= 1.05; p.vz *= 1.05; }
                 }
             });
 
             if(p.y < -50) { p.x=0; p.y=10; p.z=0; p.vx=0; p.vy=0; p.vz=0; }
 
-            camera.position.set(p.x, p.y+1, p.z);
+            // Camera lean for slide
+            const targetY = p.y + (p.isSliding ? 0.2 : 1.2);
+            camera.position.set(p.x, targetY, p.z);
             camera.rotation.set(pitch, yaw, 0, 'YXZ');
             document.getElementById('speed').innerText = "VELOCITY: " + Math.floor(Math.sqrt(p.vx**2 + p.vz**2)*100);
             renderer.render(scene, camera);
