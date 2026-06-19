@@ -2,15 +2,18 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>SURF ENGINE: NEON</title>
+    <title>SURF & PARKOUR: VELOCITY</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Arial Black', sans-serif; }
-        #ui { position: absolute; top: 20px; left: 20px; color: #fff; pointer-events: none; }
+        body { margin: 0; overflow: hidden; background: #050505; font-family: sans-serif; }
+        #ui { position: absolute; top: 20px; left: 20px; color: #fff; pointer-events: none; text-shadow: 0 0 5px #0ff; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
-    <div id="ui"><h1 id="speed">SPD: 0</h1><p>A/D: Strafe | SPACE: Jump</p></div>
+    <div id="ui">
+        <h1 id="speed">SPD: 0</h1>
+        <p>A/D: Surf/Strafe | SPACE: Jump</p>
+    </div>
     <script>
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
@@ -18,25 +21,32 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        const p = { x: 0, y: 5, z: 0, vx: 0, vy: 0, vz: 0 };
-        const ramps = [];
+        // Player Physics
+        const p = { x: 0, y: 10, z: 0, vx: 0, vy: 0, vz: 0, isGrounded: false };
+        const platforms = []; // For standard ground/parkour
+        const ramps = [];     // For surf slopes
 
-        // --- SURF MAP DESIGN ---
-        // Ramps are rotated meshes. You "surf" by moving into the slope.
-        function addRamp(x,y,z, rot, color) {
-            const geom = new THREE.BoxGeometry(40, 2, 60);
-            const mat = new THREE.MeshPhongMaterial({color, wireframe: true});
-            const mesh = new THREE.Mesh(geom, mat);
+        // Setup Scene
+        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(10, 20, 10);
+        scene.add(dirLight);
+
+        // Objects
+        function addObj(x,y,z,w,h,d, rotZ, color, isRamp, isJumpPad) {
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshPhongMaterial({color, wireframe: isRamp}));
             mesh.position.set(x,y,z);
-            mesh.rotation.z = rot;
+            mesh.rotation.z = rotZ;
             scene.add(mesh);
-            ramps.push({mesh, rot});
+            if(isRamp) ramps.push({x,y,z,w,h,d,rotZ});
+            else platforms.push({x,y,z,w,h,d,isJumpPad});
         }
 
-        addRamp(20, -5, -50, -0.8, 0x00ffff); // Right ramp
-        addRamp(-20, -5, -120, 0.8, 0xff00ff); // Left ramp
-
-        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        // Level Design
+        addObj(0, -2, 0, 40, 2, 40, 0, 0xffffff, false, false); // Start
+        addObj(20, -5, -60, 40, 2, 60, -0.7, 0x00ffff, true, false); // Surf Ramp
+        addObj(-20, -10, -140, 40, 2, 60, 0.7, 0xff00ff, true, false); // Surf Ramp
+        addObj(0, -5, -220, 20, 2, 20, 0, 0x00ff00, false, true); // Jump Pad
 
         let keys = {}, yaw = 0, pitch = 0;
         window.onkeydown = e => keys[e.code] = true;
@@ -47,30 +57,40 @@
         function animate() {
             requestAnimationFrame(animate);
 
-            // SURF PHYSICS: Strafe-based acceleration
+            // SURF/STRAFE PHYSICS
             const right = new THREE.Vector3(1,0,0).applyEuler(new THREE.Euler(0, yaw, 0));
-            if(keys['KeyA']) { p.vx -= right.x * 0.08; p.vz -= right.z * 0.08; }
-            if(keys['KeyD']) { p.vx += right.x * 0.08; p.vz += right.z * 0.08; }
+            const wishDir = new THREE.Vector3(0,0,0);
+            if(keys['KeyA']) wishDir.sub(right);
+            if(keys['KeyD']) wishDir.add(right);
             
-            // Gravity & Velocity
-            p.vy -= 0.015;
-            p.vx *= 0.99; p.vz *= 0.99;
-            p.x += p.vx; p.y += p.vy; p.z += p.vz;
+            // Air accel
+            p.vx += wishDir.x * 0.05;
+            p.vz += wishDir.z * 0.05;
+            p.vx *= 0.98; p.vz *= 0.98;
+            p.vy -= 0.015; // Gravity
 
-            // Simple Collision: If touching ramp, push up along normal
+            // Ramp Physics
             ramps.forEach(r => {
-                const dist = p.x - r.mesh.position.x;
-                if(Math.abs(dist) < 20 && p.y < r.mesh.position.y + 5) {
-                    p.vy += 0.03; // Ramp "lift"
-                    p.y = r.mesh.position.y + 5;
+                const dx = p.x - r.x;
+                if(Math.abs(dx) < r.w/2 && p.y < r.y + 5) {
+                    p.vy = 0.1; // Surf slide
+                    p.y = r.y + 2;
                 }
             });
 
-            if(p.y < -100) { p.x=0; p.y=5; p.z=0; p.vx=0; p.vy=0; p.vz=0; }
+            // Collision & Jump Pads
+            platforms.forEach(plat => {
+                if(Math.abs(p.x - plat.x) < plat.w/2 && Math.abs(p.z - plat.z) < plat.d/2 && Math.abs(p.y - plat.y) < 2) {
+                    p.y = plat.y + 2; p.vy = plat.isJumpPad ? 0.6 : 0; p.isGrounded = true;
+                }
+            });
+
+            p.x += p.vx; p.y += p.vy; p.z += p.vz;
+            if(p.y < -100) { p.x=0; p.y=10; p.z=0; p.vx=0; p.vy=0; p.vz=0; }
 
             camera.position.set(p.x, p.y+1, p.z);
             camera.rotation.set(pitch, yaw, 0, 'YXZ');
-            document.getElementById('speed').innerText = "SPD: " + Math.floor(Math.sqrt(p.vx**2 + p.vz**2)*100);
+            document.getElementById('speed').innerText = "SPD: " + Math.floor(Math.sqrt(p.vx**2 + p.vz**2)*150);
             renderer.render(scene, camera);
         }
         animate();
