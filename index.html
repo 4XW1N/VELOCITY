@@ -105,6 +105,16 @@
 
   #fpsCounter{position:fixed;bottom:4px;left:4px;color:#345;font-size:10px;z-index:60;}
 
+  #resumeOverlay{
+    position:fixed;inset:0;z-index:90;display:none;align-items:center;justify-content:center;
+    background:rgba(3,5,10,.55);backdrop-filter:blur(2px);cursor:pointer;
+  }
+  .resumeBox{
+    background:var(--panel);border:1px solid var(--accent);padding:20px 32px;text-align:center;
+    color:var(--accent);letter-spacing:3px;font-size:14px;
+  }
+  .resumeBox span{display:block;margin-top:8px;font-size:10px;letter-spacing:1px;color:#7fa8b8;}
+
   #toast{
     position:fixed;top:120px;left:50%;transform:translateX(-50%);z-index:55;
     background:var(--panel);border:1px solid var(--accent);padding:8px 18px;font-size:12px;
@@ -187,6 +197,9 @@
   <div class="panel" id="roomTag">ROOM <b id="roomTagCode">------</b></div>
 </div>
 
+<div id="resumeOverlay">
+  <div class="resumeBox">CLICK TO RESUME<br><span>mouse released — click anywhere to re-lock</span></div>
+</div>
 <div id="fpsCounter">FPS: --</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -327,6 +340,13 @@ const Net = {
       this.players.set(fromId, { name: data.name, isIt: false, connected: true });
       // Tell everyone (including sender) the current roster
       this._broadcastRoster();
+      return;
+    }
+    // Relay everything else (state updates, tag requests that need broadcast results, etc.)
+    // to every OTHER client, then process locally. Without this, clients only ever see
+    // the host move — they never see each other.
+    if (data.t === 'state') {
+      this.broadcast(data, fromId);
     }
     this.onMessage && this.onMessage(fromId, data);
   },
@@ -365,7 +385,10 @@ const Net = {
     if (data.t === 'roster') {
       this._applyRoster(data.roster);
     }
-    this.onMessage && this.onMessage(this.roomCode, data);
+    // Use the embedded origin id when present (relayed messages like 'state'),
+    // otherwise this came from the host directly (e.g. 'tagResolved', 'gameStart').
+    const originId = data.from || this.roomCode;
+    this.onMessage && this.onMessage(originId, data);
   },
 
   // Unified outbound helper used by game code — client sends to host,
@@ -464,6 +487,7 @@ function hostPeerId() {
 Net.onPlayerListChanged = () => {
   renderRoomPlayerList();
   updateHudPlayerList();
+  if (Game.started) spawnRemotePlayerMeshes();
 };
 
 el('startGameBtn').addEventListener('click', () => {
@@ -805,6 +829,14 @@ document.addEventListener('keydown', (e) => { keys[e.code] = true; if (e.code ==
 document.addEventListener('keyup', (e) => { keys[e.code] = false; });
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === renderer.domElement;
+  if (Game.started) {
+    el('resumeOverlay').style.display = pointerLocked ? 'none' : 'flex';
+  }
+});
+renderer.domElement.addEventListener('click', () => {
+  if (Game.started && !pointerLocked) {
+    renderer.domElement.requestPointerLock();
+  }
 });
 document.addEventListener('mousemove', (e) => {
   if (!pointerLocked) return;
@@ -1163,12 +1195,13 @@ function spawnRemotePlayerMeshes() {
     if (remotePlayers.has(pid)) continue;
     const mesh = makePlayerMesh(pid === Game.itId);
     const spawn = spawnPointFor(ids.indexOf(pid));
-    mesh.position.copy(spawn);
-    mesh.position.y -= TUNE.eyeHeight; // mesh origin is at feet, player.position is eye-height
+    const feetSpawn = spawn.clone();
+    feetSpawn.y -= TUNE.eyeHeight; // mesh origin is at feet; player.position/spawn points are eye-height
+    mesh.position.copy(feetSpawn);
     const label = makeNameSprite(p.name);
     mesh.add(label);
     remotePlayers.set(pid, {
-      mesh, lastPos: spawn.clone(), targetPos: spawn.clone(), prevPos: spawn.clone(),
+      mesh, lastPos: spawn.clone(), targetPos: feetSpawn.clone(), prevPos: feetSpawn.clone(),
       targetYaw: 0, currentYaw: 0, label, lerpT: 1
     });
     idx++;
@@ -1202,7 +1235,7 @@ function broadcastMyState(now) {
   lastStateSend = now;
   const feetPos = player.position.clone();
   feetPos.y -= TUNE.eyeHeight;
-  Net.emit({ t:'state', x: feetPos.x, y: feetPos.y, z: feetPos.z, yaw });
+  Net.emit({ t:'state', from: Net.myId, x: feetPos.x, y: feetPos.y, z: feetPos.z, yaw });
 }
 
 function updateRemotePlayers(dt) {
