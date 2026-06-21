@@ -880,7 +880,7 @@ function forwardCheck(distance){
   return { found:false };
 }
 
-function resolveCollisions(){
+function resolveCollisions(dt){
   const r = player.radius;
   const feetY = player.position.y - TUNE.eyeHeight;
   const headY = feetY + player.height;
@@ -903,14 +903,20 @@ function resolveCollisions(){
   for (const c of colliders){
     if (!c.isSlope) continue;
     const px=player.position.x, pz=player.position.z;
-    if (px>c.minX&&px<c.maxX&&pz>c.minZ&&pz<c.maxZ){
+    // Use the player's radius so the slope's "active" footprint doesn't flicker
+    // on/off when straddling the exact edge — this was a source of camera jitter.
+    if (px>c.minX-r && px<c.maxX+r && pz>c.minZ-r && pz<c.maxZ+r){
       const localZ = pz - c.mesh.position.z;
       const heightAtZ = c.mesh.position.y - Math.tan(c.slopeAngle)*localZ;
       const feetTarget = heightAtZ + 0.25;
       const feetY2 = player.position.y - TUNE.eyeHeight;
-      const withinSnapRange = feetY2 >= feetTarget-0.05 && feetY2 < feetTarget+0.35;
+      // Wider, more forgiving snap band reduces frame-to-frame flicker in/out of range
+      const withinSnapRange = feetY2 >= feetTarget-0.15 && feetY2 < feetTarget+0.45;
       if (withinSnapRange && player.velocity.y<=0.1){
-        player.position.y = feetTarget + TUNE.eyeHeight;
+        // Smoothly damp toward the slope surface instead of teleporting every frame —
+        // an instant position snap each frame is what caused the camera to glitch/judder.
+        const newFeetY = THREE.MathUtils.damp(feetY2, feetTarget, 18, dt);
+        player.position.y = newFeetY + TUNE.eyeHeight;
         player.velocity.y = 0; player._onSlope = true; player._slopeAngle = c.slopeAngle;
       }
     }
@@ -1111,7 +1117,7 @@ function finalizeFrame(dt){
   player.position.x += player.velocity.x*dt;
   player.position.y += player.velocity.y*dt;
   player.position.z += player.velocity.z*dt;
-  resolveCollisions();
+  resolveCollisions(dt);
   applyMomentumDecay(dt);
   yawObject.position.copy(player.position);
   yawObject.position.y = player.position.y - (TUNE.standHeight - player.height)*0.5;
